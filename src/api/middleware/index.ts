@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { apiLogger as logger } from '../utils/logger';
+import { apiLogger as logger } from '../../utils/logger';
 
 export function errorHandler(err: Error, req: Request, res: Response, next: NextFunction) {
   logger.error('API Error', {

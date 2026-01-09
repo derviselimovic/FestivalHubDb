@@ -1,7 +1,7 @@
-import { db } from './client';
-import { logger } from '../utils/logger';
-import fs from 'fs';
-import path from 'path';
+import { db } from '../client';
+import { logger } from '../../utils/logger';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export async function runMigrations(): Promise<void> {
   try {

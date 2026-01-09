@@ -47,7 +47,7 @@ export class ArtistEnricher {
       this.tokenExpiresAt = Date.now() + (response.data.expires_in * 1000) - 60000; // Refresh 1 min before expiry
 
       logger.info('Spotify access token obtained');
-      return this.accessToken;
+      return this.accessToken!;
     } catch (error) {
       logger.error('Failed to get Spotify access token', error);
       throw error;
