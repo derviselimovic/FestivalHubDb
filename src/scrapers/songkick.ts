@@ -2,6 +2,7 @@ import { BaseScraper } from './base-scraper';
 import { ScrapedFestival, ScraperResult } from '../types/festival.types';
 import { scraperLogger as logger } from '../utils/logger';
 import { generateFestivalId, getContinent, isDateInRange } from '../utils/helpers';
+import { Page } from 'playwright';
 
 export class SongkickScraper extends BaseScraper {
   constructor() {
@@ -22,30 +23,45 @@ export class SongkickScraper extends BaseScraper {
       await this.navigateWithRetry(page, `${this.config.baseUrl}/festivals`);
       await this.addDelay();
 
-      // Wait for festival listings
-      const listingsLoaded = await this.waitForSelector(page, '.event-listing, [data-testid="event-listing"]', 15000);
+      // Scroll to trigger lazy-loaded content
+      await this.scrollToLoadMore(page);
+
+      // Wait for festival listings - try multiple selectors to handle site redesigns
+      const listingsLoaded = await this.waitForSelector(
+        page,
+        '.event-listing, [data-testid="event-listing"], li.festival, ol.event-listings li',
+        15000
+      );
       
       if (!listingsLoaded) {
-        logger.warn('Festival listings not found on Songkick');
+        const pageTitle = await page.title().catch(() => 'unknown');
+        const pageUrl = page.url();
+        logger.warn(`Festival listings not found on Songkick. Page title: "${pageTitle}", URL: ${pageUrl}`);
         return { source: this.config.source, festivals, errors: ['Festival listings not found'], success: false };
       }
 
       // Extract festival information from listings
-      const festivalData = await page.$$eval('.event-listing, li[class*="event"]', (elements) => {
-        return elements.slice(0, 50).map((el) => {
-          const nameEl = el.querySelector('strong a, .event-link, a[class*="event-name"]');
-          const locationEl = el.querySelector('.location, [class*="location"]');
-          const dateEl = el.querySelector('time, .date, [class*="date"]');
-          const linkEl = el.querySelector('a[href*="/festivals/"]');
+      // Songkick uses 'a.summary' as the main event link with festival name
+      const festivalData = await page.$$eval(
+        '.event-listing, li[class*="event"], ol.event-listings li',
+        (elements) => {
+          return elements.slice(0, 50).map((el) => {
+            // Songkick uses <a class="summary"> as the primary event link
+            const nameEl = el.querySelector('a.summary, strong a, .event-link, a[class*="event-name"]');
+            const locationEl = el.querySelector('.location, .location-summary, [class*="location"]');
+            const dateEl = el.querySelector('time, .date, [class*="date"]');
+            // Use a.summary as the festival link if available, otherwise fall back to href-based selection
+            const linkEl = el.querySelector('a.summary, a[href*="/festivals/"]');
 
-          return {
-            name: nameEl?.textContent?.trim() || '',
-            location: locationEl?.textContent?.trim() || '',
-            date: dateEl?.getAttribute('datetime') || dateEl?.textContent?.trim() || '',
-            url: linkEl ? (linkEl as HTMLAnchorElement).href : '',
-          };
-        });
-      });
+            return {
+              name: nameEl?.textContent?.trim() || '',
+              location: locationEl?.textContent?.trim() || '',
+              date: dateEl?.getAttribute('datetime') || dateEl?.textContent?.trim() || '',
+              url: linkEl ? (linkEl as HTMLAnchorElement).href : '',
+            };
+          });
+        }
+      );
 
       logger.info(`Found ${festivalData.length} festivals on Songkick`);
 
@@ -124,6 +140,17 @@ export class SongkickScraper extends BaseScraper {
       jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
     };
     return months[month.toLowerCase().slice(0, 3)] || 1;
+  }
+
+  private async scrollToLoadMore(page: Page): Promise<void> {
+    try {
+      for (let i = 0; i < 3; i++) {
+        await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+        await page.waitForTimeout(2000);
+      }
+    } catch (error) {
+      logger.debug('Error scrolling page', error);
+    }
   }
 
   private extractCountryFromLocation(location?: string): string | undefined {
